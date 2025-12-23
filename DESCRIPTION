@@ -1,0 +1,13 @@
+Package: tripdistmodels
+Title: Trip Distribution Models
+Version: 0.0.0.9000
+Authors@R: 
+    person(given = "Jorge Ubirajara", family = "Pedreira Junior",
+             email = "jorge.ubirajara@ufba.br",
+             role = c("aut", "cre"),
+             comment = c(ORCID = "0000-0002-8243-5395"))
+Description: R functions for trip distribution modeling.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
