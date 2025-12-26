@@ -1,0 +1,197 @@
+---
+output:
+  github_document:
+    html_preview: false
+---
+
+# tripdistmodels: An R package for growth factor and synthetic trip distribution models <img src="man/figures/hex_tripdistmodels.png" align="right" width="190"/>
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE.md) [![Lifecycle: experimental](https://img.shields.io/badge/lifecycle-experimental-orange.svg)](https://lifecycle.r-lib.org/articles/stages.html#experimental)
+
+Current scope:
+
+-   **Growth factoring with Iterative Proportional Fitting (Furness)** to update a base OD to future productions and attractions.
+-   **Synthetic, doubly constrained gravity models** calibrated to match the **trip length frequency distribution (TLFD)** of a base OD matrix.
+
+The package is designed to accept OD and cost inputs as either **matrices** or **long (tabular) data**, and to return rich diagnostics that help you validate results.
+
+## Installation
+
+Delopment version using **pak**:
+
+``` r
+pak::pkg_install("pedreirajr/tripdistmodels")
+```
+
+Then load it:
+
+``` r
+library(tripdistmodels)
+```
+
+## What the package does
+
+### 1) Growth factoring with Furness (IPF)
+
+Use this when you have a **base OD matrix** and want an updated OD that matches **future margins**:
+
+-   `o_fut`: target productions (row totals)
+-   `d_fut`: target attractions (column totals)
+
+The method iteratively scales rows and columns until the matrix matches the targets within a tolerance.
+
+Typical use cases:
+
+-   Forecasting OD totals by applying projected productions and attractions
+-   Harmonizing OD matrices to consistent margins across scenarios
+-   Building baseline matrices for subsequent modeling steps
+
+### 2) Synthetic gravity model with trip length frequency distribution (TLFD) calibration
+
+Use this when you want to **build** a synthetic OD matrix under a **doubly constrained gravity structure** and calibrate the friction parameters to reproduce the **observed TLFD** from a base OD.
+
+The workflow inside `syn_gravitational()` is:
+
+1.  Read and align inputs (OD base, cost matrix)
+2.  Compute observed TLFD using weighted bins (auto bins or user bins)
+3.  For candidate friction parameters:
+    -   Build a seed matrix from the friction function
+    -   Apply IPF to match target productions and attractions
+    -   Compare modeled TLFD vs observed TLFD
+4.  Choose parameters that minimize TLFD mismatch
+5.  Return the final synthetic OD and diagnostics
+
+Supported friction functions:
+
+-   Exponential: `exp(-beta * c)` with `beta > 0`
+-   Power: `c^(-n)` with `n > 0`
+-   Combined: `c^(n) * exp(-beta * c)` with `beta > 0` and `n` real (may be negative)
+
+Notes:
+
+-   The combined form is flexible and often fits TLFD better.
+-   The package applies a simple positive floor to costs to avoid issues when `c_ij = 0`.
+
+## Inputs and formats
+
+### OD input
+
+You can provide `od_base` as:
+
+-   **Matrix**: numeric matrix, non-negative, no NA
+-   **Table**: long data.frame with columns:
+    -   origin (default `ORI`)
+    -   destination (default `DES`)
+    -   trips (default `n`)
+
+Duplicates are allowed in the table input and will be summed.
+
+### Cost input
+
+You can provide `cost` as:
+
+-   **Matrix**: numeric matrix aligned to OD zoning
+-   **Table**: long data.frame with columns:
+    -   origin (default `ORI`)
+    -   destination (default `DES`)
+    -   cost (default `cost`)
+
+For table cost input, full coverage is currently required.
+
+## Quick example
+
+This is a small end-to-end example that you can run after installation.
+
+``` r
+library(tripdistmodels)
+
+# Base OD as a long table
+od_base <- data.frame(
+  ORI = c("A","A","A","B","B","C","D","D"),
+  DES = c("A","B","C","B","C","C","A","D"),
+  n   = c(10, 30, 20, 15, 10, 8, 5, 12)
+)
+
+# Cost matrix (must align to zones A, B, C, D)
+C <- matrix(
+  c(0,  5, 10, 18,
+    5,  0,  7, 14,
+   10,  7,  0,  9,
+   18, 14,  9,  0),
+  nrow = 4, byrow = TRUE,
+  dimnames = list(c("A","B","C","D"), c("A","B","C","D"))
+)
+
+# Future targets
+O_fut <- c(A = 140, B = 85, C = 55, D = 50)
+D_fut <- c(A = 100, B = 80, C = 85, D = 65)
+
+# Synthetic gravity with TLFD calibration
+res <- syn_gravitational(
+  od_base = od_base,
+  cost = C,
+  od_type = "table",
+  cost_type = "matrix",
+  o_target = O_fut,
+  d_target = D_fut,
+  friction = "combined",
+  bins = "auto",
+  n_bins = 10,
+  tol = 1e-6,
+  max_iter = 5000,
+  scale_totals = "none",
+  verbose = TRUE
+)
+
+# Outputs
+res$params
+res$fit_metrics
+
+# Check margins
+max(abs(rowSums(res$od_model) - O_fut))
+max(abs(colSums(res$od_model) - D_fut))
+
+# Compare TLFD
+head(res$tld_obs)
+head(res$tld_mod)
+```
+
+## What you get back (diagnostics)
+
+`syn_gravitational()` returns an object of class `"tripdistmodels_syn_gravity"` with:
+
+-   `od_model`: final synthetic OD matrix
+-   `params`: estimated friction parameters
+-   `tld_obs`: observed TLFD from base OD
+-   `tld_mod`: modeled TLFD from synthetic OD
+-   `fit_metrics`: simple fit measures (SSE on TLFD shares, mean cost observed and modeled)
+-   `ipf`: convergence info from the final IPF run
+-   `optim`: optimizer info (method, best objective, etc.)
+-   `cost`: original cost matrix and adjusted cost matrix (with stored cost floor)
+-   `bins`: cutpoints used for TLFD
+
+## Practical tips
+
+-   For larger systems, start with a looser tolerance (example `tol = 1e-4`) while you iterate, then tighten once things look stable.
+-   If you pass custom bins, ensure they are strictly increasing and cover the full cost range you want to model.
+-   If your OD has many zeros, prefer the table input with `n > 0` rows only. This reduces memory and speeds up preprocessing.
+
+## Roadmap
+
+Planned enhancements include:
+
+-   Structural masks for forbidden OD pairs (example, no trips between disconnected zones)
+-   Additional TLFD binning strategies
+-   Test suites and validation utilities
+-   More calibration objectives beyond TLFD (optional)
+
+## Citation
+
+If you use **tripdistmodels** in academic work, consider citing:
+
+-   The package repository and release version you used
+-   Classic references on trip distribution and gravity models (example, standard transport modeling texts)
+
+## License
+
+See the `LICENSE` file in the repository.

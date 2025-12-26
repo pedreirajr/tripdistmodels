@@ -1,3 +1,5 @@
+# R/gf_furness.R
+
 #' Furness (IPF) growth factoring for OD data
 #'
 #' Applies the Furness algorithm (iterative proportional fitting) to balance an
@@ -23,12 +25,12 @@
 #' \describe{
 #'   \item{od_balanced}{Balanced OD matrix.}
 #'   \item{row_factors}{Final row factors (length nrow(od)).}
-#'   \item{col_factors}{Final column factors (length ncol(od)).}
+#'   \item{col_factors}{Final col factors (length ncol(od)).}
 #'   \item{iterations}{Number of iterations performed.}
 #'   \item{converged}{Logical indicating convergence.}
 #'   \item{max_rel_error}{Final maximum relative error across rows and columns.}
 #'   \item{row_sums}{Row sums of balanced matrix.}
-#'   \item{col_sums}{Column sums of balanced matrix.}
+#'   \item{col_sums}{Col sums of balanced matrix.}
 #' }
 #' @export
 gf_furness <- function(
@@ -57,32 +59,15 @@ gf_furness <- function(
       }
     }
     if (!is.numeric(od)) stop("With `od_type = \"matrix\"`, `od` must be numeric.")
-  }
-
-  if (od_type == "table") {
-    if (!is.data.frame(od)) {
-      stop("`od_type = \"table\"` requires `od` to be a data.frame or tibble in long format.")
-    }
-    needed <- c(origin_col, dest_col, trips_col)
-    miss <- setdiff(needed, names(od))
-    if (length(miss) > 0) {
-      stop(
-        "With `od_type = \"table\"`, `od` must contain columns: ",
-        paste(needed, collapse = ", "),
-        ". Missing: ",
-        paste(miss, collapse = ", "),
-        "."
-      )
-    }
-
-    if (!is.numeric(od[[trips_col]])) {
-      stop("`trips_col` must be numeric in `od` when `od_type = \"table\"`.")
-    }
-
-    # Build matrix via xtabs (sums duplicates, fills missing pairs with 0)
-    fml <- stats::as.formula(paste(trips_col, "~", origin_col, "+", dest_col))
-    od <- as.matrix(stats::xtabs(fml, data = od))
     storage.mode(od) <- "numeric"
+  } else {
+    od <- as_od_matrix(
+      od = od,
+      od_type = "table",
+      origin_col = origin_col,
+      dest_col = dest_col,
+      trips_col = trips_col
+    )
   }
 
   # --- Basic checks

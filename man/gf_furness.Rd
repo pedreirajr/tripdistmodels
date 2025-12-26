@@ -47,12 +47,12 @@ A list with elements:
 \describe{
 \item{od_balanced}{Balanced OD matrix.}
 \item{row_factors}{Final row factors (length nrow(od)).}
-\item{col_factors}{Final column factors (length ncol(od)).}
+\item{col_factors}{Final col factors (length ncol(od)).}
 \item{iterations}{Number of iterations performed.}
 \item{converged}{Logical indicating convergence.}
 \item{max_rel_error}{Final maximum relative error across rows and columns.}
 \item{row_sums}{Row sums of balanced matrix.}
-\item{col_sums}{Column sums of balanced matrix.}
+\item{col_sums}{Col sums of balanced matrix.}
 }
 }
 \description{
