@@ -90,8 +90,8 @@ You can provide `od_base` as:
 
 - **Matrix**: numeric matrix, non-negative, no NA
 - **Table**: long data.frame with columns:
-  - origin (default `ORI`)
-  - destination (default `DES`)
+  - origin (default `ori`)
+  - destination (default `des`)
   - trips (default `n`)
 
 Duplicates are allowed in the table input and will be summed.
@@ -102,8 +102,8 @@ You can provide `cost` as:
 
 - **Matrix**: numeric matrix aligned to OD zoning
 - **Table**: long data.frame with columns:
-  - origin (default `ORI`)
-  - destination (default `DES`)
+  - origin (default `ori`)
+  - destination (default `des`)
   - cost (default `cost`)
 
 For table cost input, full coverage is currently required.

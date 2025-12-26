@@ -12,7 +12,7 @@
 #'   and trips columns (duplicates are allowed and will be summed).
 #' @param od_type Character. Type of `od` input: `"matrix"` or `"table"`.
 #' @param origin_col,dest_col,trips_col Character. Column names in `od` when `od_type = "table"`.
-#'   Defaults are compatible with `dplyr::count(via, ORI, DES)` which yields `ORI`, `DES`, and `n`.
+#'   Defaults are compatible with `dplyr::count(via, ori, des)` which yields `ori`, `des`, and `n`.
 #' @param o_fut Numeric vector. Target future productions (row sums). If named, will be aligned to row names.
 #' @param d_fut Numeric vector. Target future attractions (column sums). If named, will be aligned to col names.
 #' @param tol Numeric. Convergence tolerance on maximum relative error (default 1e-2).
