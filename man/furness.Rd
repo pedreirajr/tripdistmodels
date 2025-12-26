@@ -27,7 +27,7 @@ and trips columns (duplicates are allowed and will be summed).}
 \item{od_type}{Character. Type of \code{od} input: \code{"matrix"} or \code{"table"}.}
 
 \item{origin_col, dest_col, trips_col}{Character. Column names in \code{od} when \code{od_type = "table"}.
-Defaults are compatible with \code{dplyr::count(via, ORI, DES)} which yields \code{ORI}, \code{DES}, and \code{n}.}
+Defaults are compatible with \code{dplyr::count(via, ori, des)} which yields \code{ori}, \code{des}, and \code{n}.}
 
 \item{o_fut}{Numeric vector. Target future productions (row sums). If named, will be aligned to row names.}
 
