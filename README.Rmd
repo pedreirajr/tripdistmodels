@@ -20,7 +20,7 @@ The package is designed to accept OD and cost inputs as either **matrices** or *
 Delopment version using **pak**:
 
 ``` r
-pak::pkg_install("pedreirajr/tripdistmodels")
+pak::pak("pedreirajr/tripdistmodels")
 ```
 
 Then load it:

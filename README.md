@@ -22,7 +22,7 @@ that help you validate results.
 Delopment version using **pak**:
 
 ``` r
-pak::pkg_install("pedreirajr/tripdistmodels")
+pak::pak("pedreirajr/tripdistmodels")
 ```
 
 Then load it:
