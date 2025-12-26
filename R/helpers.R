@@ -1,5 +1,5 @@
 # R/helpers.R
-# Helper functions used by syn_gravitational()
+# Helper functions used by gravit()
 
 # Convert an OD object (matrix or long table) into a numeric OD matrix (strict mode).
 # - If od_type = "matrix": requires a numeric matrix (or a data.frame coercible to numeric matrix
@@ -311,7 +311,7 @@ optimize_friction <- function(obj_fn, friction, C_adj, T0, verbose = FALSE) {
       message("Optimizing exp friction: beta in [", signif(b_lo, 4), ", ", signif(b_hi, 4), "]")
     }
 
-    res <- optimize(function(z) obj_fn(z), interval = log(c(b_lo, b_hi)))
+    res <- stats::optimize(function(z) obj_fn(z), interval = log(c(b_lo, b_hi)))
     return(list(
       par = res$minimum,
       value = res$objective,
@@ -332,7 +332,7 @@ optimize_friction <- function(obj_fn, friction, C_adj, T0, verbose = FALSE) {
       message("Optimizing power friction: n in [", signif(n_lo, 4), ", ", signif(n_hi, 4), "]")
     }
 
-    res <- optimize(function(z) obj_fn(z), interval = log(c(n_lo, n_hi)))
+    res <- stats::optimize(function(z) obj_fn(z), interval = log(c(n_lo, n_hi)))
     return(list(
       par = res$minimum,
       value = res$objective,

@@ -1,4 +1,4 @@
-# R/syn_gravitational.R
+# R/gravit.R
 
 #' Synthetic doubly constrained gravitational model with TLFD calibration
 #'
@@ -24,19 +24,19 @@
 #' @param n_bins Integer. Used when bins = "auto".
 #' @param bin_method Character. "wquantile" only for now.
 #' @param c_floor Numeric or NULL. If NULL, computed automatically as \code{0.5 * min(cost[cost > 0])}.
-#' @param tol,max_iter Passed to gf_furness for the final model. During optimization, a lighter IPF is used.
-#' @param scale_totals Passed to gf_furness.
+#' @param tol,max_iter Passed to furness for the final model. During optimization, a lighter IPF is used.
+#' @param scale_totals Passed to furness.
 #' @param verbose Logical. Prints progress.
 #'
-#' @return An object of class "tripdistmodels_syn_gravity".
+#' @return An object of class "tdm_gravit".
 #' @export
-syn_gravitational <- function(
+gravit <- function(
     od_base,
     cost,
     od_type = c("matrix", "table"),
     cost_type = c("matrix", "table"),
-    origin_col = "ORI",
-    dest_col   = "DES",
+    origin_col = "ori",
+    dest_col   = "des",
     trips_col  = "n",
     cost_col   = "cost",
     o_target = NULL,
@@ -94,7 +94,7 @@ syn_gravitational <- function(
     fr_par <- unpack_params(par, friction = friction)
     K <- friction_matrix(C_adj, friction = friction, params = fr_par)
 
-    ipf <- gf_furness(
+    ipf <- furness(
       od = K, od_type = "matrix",
       o_fut = o_target, d_fut = d_target,
       tol = tol_inner, max_iter = max_iter_inner,
@@ -122,7 +122,7 @@ syn_gravitational <- function(
   # 7) Build final model (full IPF controls from user)
   K_best <- friction_matrix(C_adj, friction = friction, params = best_par)
 
-  ipf_best <- gf_furness(
+  ipf_best <- furness(
     od = K_best, od_type = "matrix",
     o_fut = o_target, d_fut = d_target,
     tol = tol, max_iter = max_iter,
@@ -153,6 +153,6 @@ syn_gravitational <- function(
       max_iter_inner = max_iter_inner
     )
   )
-  class(out) <- "tripdistmodels_syn_gravity"
+  class(out) <- "tdm_gravit"
   out
 }

@@ -1,5 +1,5 @@
 ^LICENSE\.md$
-^tripdistmodels\\.Rproj$$
-^^\\.Rproj\\.user$$
-^\.Rproj\.user$
 ^README\.Rmd$
+^\.github$
+^tripdistmodels\.Rproj$
+^\.Rproj\.user$

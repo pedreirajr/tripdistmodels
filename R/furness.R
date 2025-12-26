@@ -1,4 +1,4 @@
-# R/gf_furness.R
+# R/furness.R
 
 #' Furness (IPF) growth factoring for OD data
 #'
@@ -33,11 +33,11 @@
 #'   \item{col_sums}{Col sums of balanced matrix.}
 #' }
 #' @export
-gf_furness <- function(
+furness <- function(
     od,
     od_type = c("matrix", "table"),
-    origin_col = "ORI",
-    dest_col   = "DES",
+    origin_col = "ori",
+    dest_col   = "des",
     trips_col  = "n",
     o_fut,
     d_fut,

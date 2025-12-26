@@ -1,6 +1,7 @@
 
-# tripdistmodels: An R package for growth factor and synthetic trip distribution models <img src="man/figures/hex_tripdistmodels.png" align="right" width="190"/>
+# tripdistmodels: An R package for trip distribution models <img src="man/figures/hex_tripdistmodels.png" align="right" width="190"/>
 
+[![R-CMD-check](https://github.com/pedreirajr/tripdistmodels/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/pedreirajr/tripdistmodels/actions/workflows/R-CMD-check.yaml)
 [![License:
 MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE.md)
 [![Lifecycle:
@@ -8,8 +9,8 @@ experimental](https://img.shields.io/badge/lifecycle-experimental-orange.svg)](h
 
 Current scope:
 
-- **Growth factoring with Iterative Proportional Fitting (Furness)** to
-  update a base OD to future productions and attractions.
+- **Furness growth factor models (Iterative Proportional Fitting -
+  IPF)** to update a base OD to future productions and attractions.
 - **Synthetic, doubly constrained gravity models** calibrated to match
   the **trip length frequency distribution (TLFD)** of a base OD matrix.
 
@@ -57,7 +58,7 @@ Use this when you want to **build** a synthetic OD matrix under a
 **doubly constrained gravity structure** and calibrate the friction
 parameters to reproduce the **observed TLFD** from a base OD.
 
-The workflow inside `syn_gravitational()` is:
+The workflow inside `gravit()` is:
 
 1.  Read and align inputs (OD base, cost matrix)
 2.  Compute observed TLFD using weighted bins (auto bins or user bins)
@@ -70,10 +71,10 @@ The workflow inside `syn_gravitational()` is:
 
 Supported friction functions:
 
-- Exponential: `exp(-beta * c)` with `beta > 0`
-- Power: `c^(-n)` with `n > 0`
-- Combined: `c^(n) * exp(-beta * c)` with `beta > 0` and `n` real (may
-  be negative)
+- Exponential: $`f(c) = e^{-\beta c}`$, with $`\beta > 0`$
+- Power: $`f(c) = c^{-n}`$, with $`n > 0`$
+- Combined: $`f(c) = c^{n} e^{-\beta c}`$, with $`\beta > 0`$ and
+  $`n \in \mathbb{R}`$
 
 Notes:
 
@@ -116,8 +117,8 @@ library(tripdistmodels)
 
 # Base OD as a long table
 od_base <- data.frame(
-  ORI = c("A","A","A","B","B","C","D","D"),
-  DES = c("A","B","C","B","C","C","A","D"),
+  ori = c("A","A","A","B","B","C","D","D"),
+  des = c("A","B","C","B","C","C","A","D"),
   n   = c(10, 30, 20, 15, 10, 8, 5, 12)
 )
 
@@ -136,7 +137,7 @@ O_fut <- c(A = 140, B = 85, C = 55, D = 50)
 D_fut <- c(A = 100, B = 80, C = 85, D = 65)
 
 # Synthetic gravity with TLFD calibration
-res <- syn_gravitational(
+res <- gravit(
   od_base = od_base,
   cost = C,
   od_type = "table",
@@ -167,8 +168,7 @@ head(res$tld_mod)
 
 ## What you get back (diagnostics)
 
-`syn_gravitational()` returns an object of class
-`"tripdistmodels_syn_gravity"` with:
+`gravit()` returns an object of class `"tdm_gravit"` with:
 
 - `od_model`: final synthetic OD matrix
 - `params`: estimated friction parameters
@@ -198,7 +198,6 @@ Planned enhancements include:
 - Structural masks for forbidden OD pairs (example, no trips between
   disconnected zones)
 - Additional TLFD binning strategies
-- Test suites and validation utilities
 - More calibration objectives beyond TLFD (optional)
 
 ## Citation
