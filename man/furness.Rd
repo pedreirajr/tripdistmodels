@@ -2,7 +2,7 @@
 % Please edit documentation in R/furness.R
 \name{furness}
 \alias{furness}
-\title{Furness (IPF) growth factoring for OD data}
+\title{Furness (Iterative Proportional Fitting) growth factor model for OD data}
 \usage{
 furness(
   od,
@@ -56,7 +56,7 @@ A list with elements:
 }
 }
 \description{
-Applies the Furness algorithm (iterative proportional fitting) to balance an
+Applies the Furness algorithm to balance an
 origin-destination (OD) dataset to match target future productions (origin totals)
 and attractions (destination totals).
 }
