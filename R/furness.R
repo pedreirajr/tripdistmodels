@@ -1,8 +1,8 @@
 # R/furness.R
 
-#' Furness (IPF) growth factoring for OD data
+#' Furness (Iterative Proportional Fitting) growth factor model for OD data
 #'
-#' Applies the Furness algorithm (iterative proportional fitting) to balance an
+#' Applies the Furness algorithm to balance an
 #' origin-destination (OD) dataset to match target future productions (origin totals)
 #' and attractions (destination totals).
 #'

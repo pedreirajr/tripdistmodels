@@ -10,14 +10,14 @@ output:
 
 Current scope:
 
--   **Furness growth factor models (Iterative Proportional Fitting - IPF)** to update a base OD to future productions and attractions.
--   **Synthetic, doubly constrained gravity models** calibrated to match the **trip length frequency distribution (TLFD)** of a base OD matrix.
+-   **The Furness growth factor model (Iterative Proportional Fitting - IPF)** to update a base OD to future productions and attractions.
+-   **The synthetic Gravity model** calibrated to match the **trip length frequency distribution (TLFD)** of a base OD matrix.
 
 The package is designed to accept OD and cost inputs as either **matrices** or **long (tabular) data**, and to return rich diagnostics that help you validate results.
 
 ## Installation
 
-Delopment version using **pak**:
+Install the development version using **pak**:
 
 ``` r
 pak::pak("pedreirajr/tripdistmodels")
@@ -46,7 +46,7 @@ Typical use cases:
 -   Harmonizing OD matrices to consistent margins across scenarios
 -   Building baseline matrices for subsequent modeling steps
 
-### 2) Synthetic gravity model with trip length frequency distribution (TLFD) calibration
+### 2) Gravity model with trip length frequency distribution (TLFD) calibration
 
 Use this when you want to **build** a synthetic OD matrix under a **doubly constrained gravity structure** and calibrate the friction parameters to reproduce the **observed TLFD** from a base OD.
 
@@ -180,17 +180,10 @@ head(res$tld_mod)
 
 Planned enhancements include:
 
--   Structural masks for forbidden OD pairs (example, no trips between disconnected zones)
--   Additional TLFD binning strategies
--   More calibration objectives beyond TLFD (optional)
+-   Structural masks for forbidden OD pairs (example, no trips between disconnected zones).
+-   Additional TLFD binning strategies.
+-   Implement Intervening Opportunities models.
 
 ## Citation
 
-If you use **tripdistmodels** in academic work, consider citing:
-
--   The package repository and release version you used
--   Classic references on trip distribution and gravity models (example, standard transport modeling texts)
-
-## License
-
-See the `LICENSE` file in the repository.
+If you use **tripdistmodels** in academic work, consider citing the package repository and release version you used.
