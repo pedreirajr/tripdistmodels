@@ -184,6 +184,7 @@ choose_bins_auto <- function(C, T, n_bins = 12L, min_bins = 3L) {
   }
 
   cuts <- sort(unique(cuts))
+  cuts[length(cuts)] <- Inf
   cuts
 }
 
@@ -202,10 +203,22 @@ tld_from_matrix <- function(C, T, cuts) {
   keep <- is.finite(x) & is.finite(w) & (w > 0)
   x <- x[keep]
   w <- w[keep]
-
   if (length(x) == 0) stop("No positive-weight trips available to compute TLFD.")
 
+  cuts <- sort(unique(cuts))
+
+  # If last cut is exactly max(x), switch for Inf
+  if (is.finite(tail(cuts, 1)) && isTRUE(all.equal(tail(cuts, 1), max(x)))) {
+    cuts[length(cuts)] <- Inf
+  }
+
   bin <- cut(x, breaks = cuts, include.lowest = TRUE, right = FALSE)
+
+  # FIX 2: if there is still NA, bins don't cover ther range, then better fail
+  if (anyNA(bin)) {
+    stop("Some costs were not assigned to bins. Ensure `cuts` covers the full range (e.g., end with Inf).")
+  }
+
   trips <- tapply(w, bin, sum)
   trips <- as.numeric(trips)
   trips[is.na(trips)] <- 0
