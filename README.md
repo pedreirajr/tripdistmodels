@@ -34,7 +34,7 @@ library(tripdistmodels)
 
 ## What the package does
 
-### 1) Growth factoring with Furness (IPF)
+### 1) Growth factor modeling with Furness (IPF)
 
 Use this when you have a **base OD matrix** and want an updated OD that
 matches **future margins**:
