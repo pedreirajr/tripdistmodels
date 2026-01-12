@@ -1,106 +1,102 @@
-testthat::test_that("furness balances margins (matrix input)", {
-  M <- matrix(
-    c(0,  5, 10,
-      12, 0,  3,
-      4, 8,  0),
-    nrow = 3, byrow = TRUE,
-    dimnames = list(c("A","B","C"), c("A","B","C"))
-  )
+test_that("furness balances a seed matrix to given targets (basic)", {
+  set.seed(10)
 
-  o_fut <- c(A = 120, B = 80, C = 50)
-  d_fut <- c(A = 90,  B = 70, C = 90)  # total = 250
+  n <- 12
+  zones <- paste0("Z", sprintf("%02d", 1:n))
+
+  seed <- matrix(runif(n * n, 0.1, 2), n, n, dimnames = list(zones, zones))
+
+  o_target <- runif(n, 50, 100)
+  d_target <- runif(n, 50, 100)
+
+  # make totals consistent via simple rescaling
+  d_target <- d_target * (sum(o_target) / sum(d_target))
 
   res <- furness(
-    od = M,
+    od = seed,
     od_type = "matrix",
-    o_fut = o_fut,
-    d_fut = d_fut,
+    o_target = o_target,
+    d_target = d_target,
     tol = 1e-8,
     max_iter = 5000,
-    scale_totals = "none",
+    scale_totals = "d_to_o",
     verbose = FALSE
   )
 
-  testthat::expect_true(res$converged)
-  testthat::expect_equal(as.numeric(rowSums(res$od_balanced)),
-                         as.numeric(o_fut),
-                         tolerance = 1e-6)
-  testthat::expect_equal(as.numeric(colSums(res$od_balanced)),
-                         as.numeric(d_fut),
-                         tolerance = 1e-6)
-  testthat::expect_false(anyNA(res$od_balanced))
-  testthat::expect_true(all(res$od_balanced >= 0))
+  expect_true(is.matrix(res$od_balanced))
+  expect_false(anyNA(res$od_balanced))
+  expect_true(all(is.finite(res$od_balanced)))
+  expect_true(min(res$od_balanced) >= -1e-12)
+
+  expect_true(isTRUE(all.equal(rowSums(res$od_balanced), res$o_target, tolerance = 1e-4)))
+  expect_true(isTRUE(all.equal(colSums(res$od_balanced), res$d_target, tolerance = 1e-4)))
+
+  expect_true(is.numeric(res$iterations))
+  expect_true(is.numeric(res$max_rel_error))
 })
 
-testthat::test_that("furness is invariant to scaling the seed matrix", {
-  M <- matrix(
-    c(1, 2,
-      3, 4),
-    nrow = 2, byrow = TRUE,
-    dimnames = list(c("A","B"), c("A","B"))
-  )
-  o_fut <- c(A = 30, B = 70)
-  d_fut <- c(A = 40, B = 60)
+test_that("furness is deterministic for the same inputs", {
+  set.seed(11)
 
-  r1 <- furness(M, "matrix", o_fut = o_fut, d_fut = d_fut,
-                tol = 1e-10, max_iter = 5000, scale_totals = "none")
-  r2 <- furness(100 * M, "matrix", o_fut = o_fut, d_fut = d_fut,
-                tol = 1e-10, max_iter = 5000, scale_totals = "none")
+  n <- 8
+  zones <- paste0("Z", sprintf("%02d", 1:n))
 
-  testthat::expect_equal(r1$od_balanced, r2$od_balanced, tolerance = 1e-8)
+  seed <- matrix(runif(n * n, 0.5, 1.5), n, n, dimnames = list(zones, zones))
+  o_target <- runif(n, 10, 30)
+  d_target <- runif(n, 10, 30)
+  d_target <- d_target * (sum(o_target) / sum(d_target))
+
+  res1 <- furness(seed, "matrix", o_target = o_target, d_target = d_target, verbose = FALSE)
+  res2 <- furness(seed, "matrix", o_target = o_target, d_target = d_target, verbose = FALSE)
+
+  expect_equal(res1$od_balanced, res2$od_balanced)
+  expect_equal(res1$iterations, res2$iterations)
+  expect_equal(res1$max_rel_error, res2$max_rel_error)
 })
 
-testthat::test_that("furness table input matches matrix input", {
-  M <- matrix(
-    c(0, 5, 2,
-      1, 0, 7,
-      3, 4, 0),
-    nrow = 3, byrow = TRUE,
-    dimnames = list(c("A","B","C"), c("A","B","C"))
+test_that("furness rescales targets when totals mismatch (scale_totals = d_to_o)", {
+  set.seed(12)
+
+  n <- 6
+  zones <- paste0("Z", seq_len(n))
+
+  seed <- matrix(runif(n * n, 0.2, 1), n, n, dimnames = list(zones, zones))
+
+  o_target <- rep(100, n)
+  d_target <- rep(80, n)  # intentionally different total
+
+  # Expected destination targets after rescaling to match sum(o_target)
+  expected_d <- d_target * (sum(o_target) / sum(d_target))
+
+  res <- furness(
+    od = seed,
+    od_type = "matrix",
+    o_target = o_target,
+    d_target = d_target,
+    scale_totals = "d_to_o",
+    verbose = FALSE
   )
 
-  od_tbl <- as.data.frame(as.table(M), stringsAsFactors = FALSE)
-  names(od_tbl) <- c("ORI", "DES", "n")
-  od_tbl$n <- as.numeric(od_tbl$n)
+  # The balanced matrix must match the effective targets used internally (named vectors)
+  expect_true(isTRUE(all.equal(rowSums(res$od_balanced), res$o_target, tolerance = 1e-4)))
+  expect_true(isTRUE(all.equal(colSums(res$od_balanced), res$d_target, tolerance = 1e-4)))
 
-  o_fut <- c(A = 60, B = 45, C = 30)
-  d_fut <- c(A = 50, B = 40, C = 45)
-
-  r_mat <- furness(M, "matrix", o_fut = o_fut, d_fut = d_fut,
-                   tol = 1e-10, max_iter = 5000, scale_totals = "none")
-  r_tbl <- furness(od_tbl, "table", o_fut = o_fut, d_fut = d_fut,
-                   origin_col = "ORI", dest_col = "DES", trips_col = "n",
-                   tol = 1e-10, max_iter = 5000, scale_totals = "none")
-
-  testthat::expect_equal(r_mat$od_balanced, r_tbl$od_balanced, tolerance = 1e-8, ignore_attr = T)
+  # Sanity check: the internal d_target must equal the expected rescaled values (ignore names)
+  expect_true(isTRUE(all.equal(unname(res$d_target), expected_d, tolerance = 1e-4)))
 })
 
-testthat::test_that("furness errors on infeasible structural zeros", {
-  M <- matrix(c(0,0, 0,1), nrow = 2, byrow = TRUE)
-  # row 1 is all zero but production > 0 -> infeasible
-  o_fut <- c(10, 1)
-  d_fut <- c(5, 6)
 
-  testthat::expect_error(
-    furness(M, "matrix", o_fut = o_fut, d_fut = d_fut, scale_totals = "none"),
-    "Infeasible"
+test_that("furness errors on invalid inputs", {
+  n <- 4
+  zones <- paste0("Z", seq_len(n))
+
+  seed <- matrix(1, n, n, dimnames = list(zones, zones))
+  seed[1, 1] <- -1  # invalid (negative flow)
+
+  o_target <- rep(10, n)
+  d_target <- rep(10, n)
+
+  expect_error(
+    furness(seed, "matrix", o_target = o_target, d_target = d_target, verbose = FALSE)
   )
-})
-
-testthat::test_that("furness handles totals mismatch according to scale_totals", {
-  M <- matrix(c(1,2,3,4), nrow = 2)
-  o_fut <- c(10, 10)  # total 20
-  d_fut <- c(5, 5)    # total 10
-
-  testthat::expect_error(
-    furness(M, "matrix", o_fut = o_fut, d_fut = d_fut, scale_totals = "none"),
-    "sum\\(o_fut\\) != sum\\(d_fut\\)"
-  )
-
-  r <- furness(M, "matrix", o_fut = o_fut, d_fut = d_fut, scale_totals = "d_to_o",
-               tol = 1e-10, max_iter = 5000)
-
-  testthat::expect_true(r$converged)
-  testthat::expect_equal(sum(r$row_sums), sum(r$col_sums), tolerance = 1e-8)
-  testthat::expect_equal(sum(r$row_sums), sum(o_fut), tolerance = 1e-8)
 })

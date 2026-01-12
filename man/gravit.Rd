@@ -2,75 +2,109 @@
 % Please edit documentation in R/gravit.R
 \name{gravit}
 \alias{gravit}
-\title{Synthetic doubly constrained gravitational model with TLFD calibration}
+\title{Gravity model calibration and synthesis}
 \usage{
 gravit(
   od_base,
   cost,
   od_type = c("matrix", "table"),
   cost_type = c("matrix", "table"),
-  origin_col = "ori",
-  dest_col = "des",
-  trips_col = "n",
-  cost_col = "cost",
+  deterrence = c("exp", "power", "combined"),
+  estimation = c("poisson", "hyman", "fixed"),
   o_target = NULL,
   d_target = NULL,
-  friction = c("exp", "power", "combined"),
-  bins = "auto",
-  n_bins = 12L,
-  bin_method = c("wquantile"),
+  beta = NULL,
+  n = NULL,
+  missing = c("exclude", "zero"),
   c_floor = NULL,
+  c_floor_rate = 0.5,
+  scale_totals = c("d_to_o", "o_to_d"),
   tol = 1e-04,
-  max_iter = 2000L,
-  scale_totals = c("d_to_o", "o_to_d", "none"),
-  verbose = FALSE
+  max_iter = 2000,
+  verbose = FALSE,
+  o_col = "ori",
+  d_col = "des",
+  t_col = "n",
+  c_col = "c"
 )
 }
 \arguments{
-\item{od_base}{Base-period OD trips. Matrix or long table.}
+\item{od_base}{Observed/base OD matrix or table.}
 
-\item{cost}{Cost matrix/table aligned to the same zoning system.}
+\item{cost}{Cost matrix or table aligned with \code{od_base}.}
 
-\item{od_type}{Character. "matrix" or "table" for od_base.}
+\item{od_type}{Either \code{"matrix"} or \code{"table"}.}
 
-\item{cost_type}{Character. "matrix" or "table" for cost.}
+\item{cost_type}{Either \code{"matrix"} or \code{"table"}.}
 
-\item{origin_col, dest_col, trips_col}{Column names when od_type = "table".}
+\item{deterrence}{Deterrence function: \code{"exp"}, \code{"power"} or \code{"combined"}.}
 
-\item{cost_col}{Column name for cost when cost_type = "table".}
+\item{estimation}{Estimation method: \code{"poisson"} (default), \code{"hyman"} (exp only), or \code{"fixed"}.}
 
-\item{o_target, d_target}{Target productions and attractions (numeric vectors).
-If NULL, use base margins from od_base.}
+\item{o_target}{Target origin totals (productions). If \code{NULL}, uses row sums of \code{od_base} (ignoring NAs).}
 
-\item{friction}{Character. "exp", "power", or "combined".}
+\item{d_target}{Target destination totals (attractions). If \code{NULL}, uses column sums of \code{od_base} (ignoring NAs).}
 
-\item{bins}{Either "auto" or a numeric vector of cutpoints.}
+\item{beta}{Cost coefficient for \code{"exp"} or \code{"combined"} when \code{estimation = "fixed"}.}
 
-\item{n_bins}{Integer. Used when bins = "auto".}
+\item{n}{Exponent for \code{"power"} or \code{"combined"} when \code{estimation = "fixed"}.}
 
-\item{bin_method}{Character. "wquantile" only for now.}
+\item{missing}{How to treat missing OD pairs in \code{od_base} during calibration. \code{"exclude"} (default)
+excludes them from estimation, but they can still receive modeled flows in synthesis. \code{"zero"}
+treats them as observed zeros.}
 
-\item{c_floor}{Numeric or NULL. If NULL, computed automatically as \code{0.5 * min(cost[cost > 0])}.}
+\item{c_floor}{Minimum positive cost used only when \code{deterrence} relies on \code{log(cost)} (\code{"power"} or \code{"combined"}).
+If \code{NULL}, an origin-specific \code{c_floor} is inferred as \code{c_floor_rate * min_positive_cost(origin)}.}
 
-\item{tol, max_iter}{Passed to furness for the final model. During optimization, a lighter IPF is used.}
+\item{c_floor_rate}{Scaling factor used to infer \code{c_floor} when \code{c_floor} is \code{NULL}. See \code{c_floor}.}
 
-\item{scale_totals}{Passed to furness.}
+\item{scale_totals}{How to reconcile \code{sum(o_target)} and \code{sum(d_target)} when they differ:
+\code{"d_to_o"} rescales \code{d_target} to match \code{sum(o_target)}, and \code{"o_to_d"} rescales \code{o_target} to match \code{sum(d_target)}.}
 
-\item{verbose}{Logical. Prints progress.}
+\item{tol}{Convergence tolerance passed to Furness and to root-finding/optimization in calibration.}
+
+\item{max_iter}{Maximum iterations for Furness.}
+
+\item{verbose}{If \code{TRUE}, prints diagnostic messages.}
+
+\item{o_col}{(table input) origin column name in \code{od_base} and \code{cost}.}
+
+\item{d_col}{(table input) destination column name in \code{od_base} and \code{cost}.}
+
+\item{t_col}{(table input) trips column name in \code{od_base}.}
+
+\item{c_col}{(table input) cost column name in \code{cost}.}
 }
 \value{
-An object of class "tdm_gravit".
+A list with elements:
+\itemize{
+\item \code{od_base}: base OD (matrix, with NAs if missing pairs were not provided)
+\item \code{cost}: cost matrix (possibly with \code{c_floor} applied when needed)
+\item \code{o_target}, \code{d_target}
+\item \code{od_seed}: gravity seed matrix before balancing
+\item \code{od_model}: balanced/synthesized OD matrix
+\item \code{deterrence}, \code{estimation}, and estimated parameters
+}
 }
 \description{
-Builds a synthetic OD matrix using a doubly constrained gravity model.
-Friction parameters are calibrated to match the observed trip length
-frequency distribution (TLFD) from a base OD matrix.
+Calibrate and synthesize an origin-destination (OD) matrix using classic doubly constrained gravity
+modeling with a deterrence function of generalized travel cost and a Furness (IPF) balancing step.
 }
 \details{
-Supported friction functions:
-\itemize{
-\item exponential: f(c) = exp(-beta * c)
-\item power:       f(c) = c^(-n), with n > 0
-\item combined:    f(c) = c^(n) * exp(-beta * c), with beta > 0 and n real (can be negative)
+This implementation follows the Poisson log-linear maximum likelihood properties described in
+the trip distribution literature: calibration is performed by enforcing the relevant moment
+conditions (for example, matching observed and modeled mean costs) while balancing to the desired
+origin and destination totals via Furness.
 }
+\references{
+Williams, I. (1976). A comparison of some calibration techniques for doubly
+constrained models with an exponential cost function. \emph{Transportation Research}.
+
+Flowerdew, R. (1982). A method for fitting the gravity model based on the Poisson distribution.
+\emph{Journal of Regional Science}.
+
+Shrewsbury, J. (2012). Calibration of trip distribution by generalised linear models. Available at
+\emph{https://www.nzta.govt.nz/assets/resources/research/reports/473/docs/473.pdf}
+
+Ortúzar, J. de D., and Willumsen, L. G. (2024). \emph{Modelling Transport}. 5th ed.
 }
