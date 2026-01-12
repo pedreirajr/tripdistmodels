@@ -1,189 +1,103 @@
-# R/furness.R
-
-#' Furness (Iterative Proportional Fitting) growth factor model for OD data
+#' Furness (IPF) balancing for OD matrices
 #'
-#' Applies the Furness algorithm to balance an
-#' origin-destination (OD) dataset to match target future productions (origin totals)
-#' and attractions (destination totals).
+#' Apply the Furness (iterative proportional fitting) algorithm to adjust an OD matrix so that
+#' row sums and column sums match desired origin and destination totals.
 #'
-#' @param od OD input, whose structure must be coherent with `od_type`.
-#'   If `od_type = "matrix"`, `od` must be a numeric matrix (or a data.frame coercible to a numeric matrix).
-#'   If `od_type = "table"`, `od` must be a data.frame/tibble in long format with origin, destination,
-#'   and trips columns (duplicates are allowed and will be summed).
-#' @param od_type Character. Type of `od` input: `"matrix"` or `"table"`.
-#' @param origin_col,dest_col,trips_col Character. Column names in `od` when `od_type = "table"`.
-#'   Defaults are compatible with `dplyr::count(via, ori, des)` which yields `ori`, `des`, and `n`.
-#' @param o_fut Numeric vector. Target future productions (row sums). If named, will be aligned to row names.
-#' @param d_fut Numeric vector. Target future attractions (column sums). If named, will be aligned to col names.
-#' @param tol Numeric. Convergence tolerance on maximum relative error (default 1e-2).
-#' @param max_iter Integer. Maximum number of iterations (default 1000).
-#' @param scale_totals Character. What to do if sum(o_fut) != sum(d_fut):
-#'   `"none"` (error), `"d_to_o"` (scale d_fut), or `"o_to_d"` (scale o_fut).
-#' @param verbose Logical. If TRUE, prints iteration progress.
+#' @param od OD matrix or table (seed).
+#' @param od_type `"matrix"` or `"table"`.
+#' @param o_target Target origin totals (vector).
+#' @param d_target Target destination totals (vector).
+#' @param tol Convergence tolerance.
+#' @param max_iter Maximum number of iterations.
+#' @param scale_totals What to do if `sum(o_target) != sum(d_target)`:
+#'   `"d_to_o"` rescales `d_target` to match `sum(o_target)`, and `"o_to_d"` rescales `o_target` to match `sum(d_target)`.
+#' @param verbose If `TRUE`, prints progress.
+#' @param o_col (table input) origin column name.
+#' @param d_col (table input) destination column name.
+#' @param t_col (table input) trips column name.
 #'
-#' @return A list with elements:
-#' \describe{
-#'   \item{od_balanced}{Balanced OD matrix.}
-#'   \item{row_factors}{Final row factors (length nrow(od)).}
-#'   \item{col_factors}{Final col factors (length ncol(od)).}
-#'   \item{iterations}{Number of iterations performed.}
-#'   \item{converged}{Logical indicating convergence.}
-#'   \item{max_rel_error}{Final maximum relative error across rows and columns.}
-#'   \item{row_sums}{Row sums of balanced matrix.}
-#'   \item{col_sums}{Col sums of balanced matrix.}
-#' }
+#' @return A list with `od_balanced`, `converged`, `iterations`, and balancing factors.
 #' @export
-furness <- function(
-    od,
-    od_type = c("matrix", "table"),
-    origin_col = "ori",
-    dest_col   = "des",
-    trips_col  = "n",
-    o_fut,
-    d_fut,
-    tol = 1e-2,
-    max_iter = 1000,
-    scale_totals = c("none", "d_to_o", "o_to_d"),
-    verbose = FALSE
-) {
+furness <- function(od,
+                    od_type = c("matrix", "table"),
+                    o_target,
+                    d_target,
+                    tol = 1e-4,
+                    max_iter = 2000,
+                    scale_totals = c("d_to_o", "o_to_d"),
+                    verbose = FALSE,
+                    o_col = "ori",
+                    d_col = "des",
+                    t_col = "n") {
+
   od_type <- match.arg(od_type)
   scale_totals <- match.arg(scale_totals)
 
-  # --- Enforce OD input type coherence + convert to matrix
+  # 1) Normalize input into a matrix
   if (od_type == "matrix") {
-    if (!is.matrix(od)) {
-      if (is.data.frame(od)) {
-        od <- as.matrix(od)
-      } else {
-        stop("`od_type = \"matrix\"` requires `od` to be a matrix (or a data.frame coercible to matrix).")
-      }
-    }
-    if (!is.numeric(od)) stop("With `od_type = \"matrix\"`, `od` must be numeric.")
-    storage.mode(od) <- "numeric"
+    od_mat <- od
   } else {
-    od <- as_od_matrix(
-      od = od,
-      od_type = "table",
-      origin_col = origin_col,
-      dest_col = dest_col,
-      trips_col = trips_col
-    )
+    od_mat <- as_od_matrix(od, o_col = o_col, d_col = d_col, t_col = t_col)
+  }
+  assert_square_named_matrix(od_mat, "od")
+
+  # IPF assumes non-negative, finite values in the seed matrix
+  if (any(!is.finite(od_mat))) {
+    stop("`od` must contain only finite values.", call. = FALSE)
+  }
+  if (any(od_mat < 0, na.rm = TRUE)) {
+    stop("`od` must be non-negative.", call. = FALSE)
   }
 
-  # --- Basic checks
-  if (anyNA(od)) stop("`od` contains NA. Replace missing cells with 0 before balancing.")
-  if (any(od < 0)) stop("`od` must be non-negative.")
+  zones <- rownames(od_mat)
 
-  n <- nrow(od)
-  m <- ncol(od)
+  # 2) Coerce targets and enforce consistent naming
+  o_target <- as.numeric(o_target); names(o_target) <- zones
+  d_target <- as.numeric(d_target); names(d_target) <- zones
 
-  o_fut <- as.numeric(o_fut)
-  d_fut <- as.numeric(d_fut)
+  # 3) Ensure totals are consistent by rescaling one side if needed
+  scaled <- scale_targets_if_needed(o_target, d_target, scale_totals = scale_totals)
+  o_target <- scaled$o_target
+  d_target <- scaled$d_target
 
-  # If provided as named vectors, align to dimnames
-  rn <- rownames(od)
-  cn <- colnames(od)
-
-  if (!is.null(names(o_fut))) {
-    if (is.null(rn)) stop("`o_fut` is named, but `od` has no rownames to align with.")
-    if (!all(rn %in% names(o_fut))) {
-      bad <- rn[!(rn %in% names(o_fut))]
-      stop("`o_fut` is named but missing names for rows: ", paste(bad, collapse = ", "))
-    }
-    o_fut <- o_fut[rn]
-    o_fut <- as.numeric(o_fut)
-  }
-
-  if (!is.null(names(d_fut))) {
-    if (is.null(cn)) stop("`d_fut` is named, but `od` has no colnames to align with.")
-    if (!all(cn %in% names(d_fut))) {
-      bad <- cn[!(cn %in% names(d_fut))]
-      stop("`d_fut` is named but missing names for cols: ", paste(bad, collapse = ", "))
-    }
-    d_fut <- d_fut[cn]
-    d_fut <- as.numeric(d_fut)
-  }
-
-  if (length(o_fut) != n) stop("Length of `o_fut` must match nrow(od) after OD construction.")
-  if (length(d_fut) != m) stop("Length of `d_fut` must match ncol(od) after OD construction.")
-  if (anyNA(o_fut) || anyNA(d_fut)) stop("`o_fut`/`d_fut` must not contain NA.")
-  if (any(o_fut < 0) || any(d_fut < 0)) stop("`o_fut`/`d_fut` must be non-negative.")
-
-  # --- Totals consistency
-  sO <- sum(o_fut)
-  sD <- sum(d_fut)
-
-  if (!isTRUE(all.equal(sO, sD))) {
-    if (scale_totals == "none") {
-      stop("sum(o_fut) != sum(d_fut). Choose `scale_totals = 'd_to_o'` or 'o_to_d'.")
-    }
-    if (scale_totals == "d_to_o") {
-      if (sD == 0) stop("Cannot scale `d_fut` because sum(d_fut) = 0.")
-      d_fut <- d_fut * (sO / sD)
-    } else {
-      if (sO == 0) stop("Cannot scale `o_fut` because sum(o_fut) = 0.")
-      o_fut <- o_fut * (sD / sO)
-    }
-  }
-
-  # --- Structural feasibility checks for zeros
-  rs0 <- rowSums(od)
-  cs0 <- colSums(od)
-
-  if (any(o_fut > 0 & rs0 == 0)) {
-    bad <- which(o_fut > 0 & rs0 == 0)
-    stop("Infeasible: some rows have o_fut > 0 but OD row sum is 0. Rows: ", paste(bad, collapse = ", "))
-  }
-  if (any(d_fut > 0 & cs0 == 0)) {
-    bad <- which(d_fut > 0 & cs0 == 0)
-    stop("Infeasible: some cols have d_fut > 0 but OD col sum is 0. Cols: ", paste(bad, collapse = ", "))
-  }
-
-  # --- Furness/IPF
-  M <- od
-  row_f <- rep(1, n)
-  col_f <- rep(1, m)
+  # 4) Seed: replace NA by 0 (IPF requires numeric values)
+  od_bal <- od_mat
+  od_bal[is.na(od_bal)] <- 0
 
   converged <- FALSE
   max_rel_error <- Inf
 
-  for (k in seq_len(max_iter)) {
-    rs <- rowSums(M)
-    l <- ifelse(rs > 0, o_fut / rs, 1)
-    M <- l * M
-    row_f <- row_f * l
+  # 5) IPF iterations: scale rows and columns alternately
+  for (it in seq_len(max_iter)) {
+    rs <- rowSums(od_bal)
+    a <- ifelse(rs > 0, o_target / rs, 0)
+    od_bal <- od_bal * a
 
-    cs <- colSums(M)
-    cfac <- ifelse(cs > 0, d_fut / cs, 1)
-    M <- t(cfac * t(M))
-    col_f <- col_f * cfac
+    cs <- colSums(od_bal)
+    b <- ifelse(cs > 0, d_target / cs, 0)
+    od_bal <- t(t(od_bal) * b)
 
-    rs_new <- rowSums(M)
-    cs_new <- colSums(M)
+    # Maximum relative error on marginals
+    err_r <- max(abs(rowSums(od_bal) - o_target) / pmax(1, o_target))
+    err_c <- max(abs(colSums(od_bal) - d_target) / pmax(1, d_target))
+    max_rel_error <- max(err_r, err_c)
 
-    row_err <- ifelse(o_fut > 0, abs(rs_new - o_fut) / o_fut, abs(rs_new - o_fut))
-    col_err <- ifelse(d_fut > 0, abs(cs_new - d_fut) / d_fut, abs(cs_new - d_fut))
-
-    max_rel_error <- max(c(row_err, col_err), na.rm = TRUE)
-
-    if (verbose && (k %% 10 == 0 || k == 1)) {
-      message("Iter = ", k, " | max_rel_error = ", signif(max_rel_error, 4))
+    if (isTRUE(verbose) && (it == 1L || it %% 25L == 0L)) {
+      message("Iter = ", it, " | max_rel_error = ", signif(max_rel_error, 6))
     }
 
-    if (max_rel_error <= tol) {
+    if (max_rel_error < tol) {
       converged <- TRUE
       break
     }
   }
 
   list(
-    od_balanced = M,
-    row_factors = row_f,
-    col_factors = col_f,
-    iterations = if (converged) k else max_iter,
+    od_balanced = od_bal,
     converged = converged,
+    iterations = if (converged) it else max_iter,
     max_rel_error = max_rel_error,
-    row_sums = rowSums(M),
-    col_sums = colSums(M)
+    o_target = o_target,
+    d_target = d_target
   )
 }

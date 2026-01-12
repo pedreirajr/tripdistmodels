@@ -2,61 +2,50 @@
 % Please edit documentation in R/furness.R
 \name{furness}
 \alias{furness}
-\title{Furness (Iterative Proportional Fitting) growth factor model for OD data}
+\title{Furness (IPF) balancing for OD matrices}
 \usage{
 furness(
   od,
   od_type = c("matrix", "table"),
-  origin_col = "ori",
-  dest_col = "des",
-  trips_col = "n",
-  o_fut,
-  d_fut,
-  tol = 0.01,
-  max_iter = 1000,
-  scale_totals = c("none", "d_to_o", "o_to_d"),
-  verbose = FALSE
+  o_target,
+  d_target,
+  tol = 1e-04,
+  max_iter = 2000,
+  scale_totals = c("d_to_o", "o_to_d"),
+  verbose = FALSE,
+  o_col = "ori",
+  d_col = "des",
+  t_col = "n"
 )
 }
 \arguments{
-\item{od}{OD input, whose structure must be coherent with \code{od_type}.
-If \code{od_type = "matrix"}, \code{od} must be a numeric matrix (or a data.frame coercible to a numeric matrix).
-If \code{od_type = "table"}, \code{od} must be a data.frame/tibble in long format with origin, destination,
-and trips columns (duplicates are allowed and will be summed).}
+\item{od}{OD matrix or table (seed).}
 
-\item{od_type}{Character. Type of \code{od} input: \code{"matrix"} or \code{"table"}.}
+\item{od_type}{\code{"matrix"} or \code{"table"}.}
 
-\item{origin_col, dest_col, trips_col}{Character. Column names in \code{od} when \code{od_type = "table"}.
-Defaults are compatible with \code{dplyr::count(via, ori, des)} which yields \code{ori}, \code{des}, and \code{n}.}
+\item{o_target}{Target origin totals (vector).}
 
-\item{o_fut}{Numeric vector. Target future productions (row sums). If named, will be aligned to row names.}
+\item{d_target}{Target destination totals (vector).}
 
-\item{d_fut}{Numeric vector. Target future attractions (column sums). If named, will be aligned to col names.}
+\item{tol}{Convergence tolerance.}
 
-\item{tol}{Numeric. Convergence tolerance on maximum relative error (default 1e-2).}
+\item{max_iter}{Maximum number of iterations.}
 
-\item{max_iter}{Integer. Maximum number of iterations (default 1000).}
+\item{scale_totals}{What to do if \code{sum(o_target) != sum(d_target)}:
+\code{"d_to_o"} rescales \code{d_target} to match \code{sum(o_target)}, and \code{"o_to_d"} rescales \code{o_target} to match \code{sum(d_target)}.}
 
-\item{scale_totals}{Character. What to do if sum(o_fut) != sum(d_fut):
-\code{"none"} (error), \code{"d_to_o"} (scale d_fut), or \code{"o_to_d"} (scale o_fut).}
+\item{verbose}{If \code{TRUE}, prints progress.}
 
-\item{verbose}{Logical. If TRUE, prints iteration progress.}
+\item{o_col}{(table input) origin column name.}
+
+\item{d_col}{(table input) destination column name.}
+
+\item{t_col}{(table input) trips column name.}
 }
 \value{
-A list with elements:
-\describe{
-\item{od_balanced}{Balanced OD matrix.}
-\item{row_factors}{Final row factors (length nrow(od)).}
-\item{col_factors}{Final col factors (length ncol(od)).}
-\item{iterations}{Number of iterations performed.}
-\item{converged}{Logical indicating convergence.}
-\item{max_rel_error}{Final maximum relative error across rows and columns.}
-\item{row_sums}{Row sums of balanced matrix.}
-\item{col_sums}{Col sums of balanced matrix.}
-}
+A list with \code{od_balanced}, \code{converged}, \code{iterations}, and balancing factors.
 }
 \description{
-Applies the Furness algorithm to balance an
-origin-destination (OD) dataset to match target future productions (origin totals)
-and attractions (destination totals).
+Apply the Furness (iterative proportional fitting) algorithm to adjust an OD matrix so that
+row sums and column sums match desired origin and destination totals.
 }

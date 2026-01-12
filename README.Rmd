@@ -8,12 +8,14 @@ output:
 
 [![R-CMD-check](https://github.com/pedreirajr/tripdistmodels/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/pedreirajr/tripdistmodels/actions/workflows/R-CMD-check.yaml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE.md) [![Lifecycle: experimental](https://img.shields.io/badge/lifecycle-experimental-orange.svg)](https://lifecycle.r-lib.org/articles/stages.html#experimental)
 
-Current scope:
+## Current scope
 
--   **The Furness growth factor model (Iterative Proportional Fitting - IPF)** to update a base OD to future productions and attractions.
--   **The synthetic Gravity model** calibrated to match the **trip length frequency distribution (TLFD)** of a base OD matrix.
+**tripdistmodels** currently provides two core building blocks for trip distribution work:
 
-The package is designed to accept OD and cost inputs as either **matrices** or **long (tabular) data**, and to return rich diagnostics that help you validate results.
+-   **Furness balancing (Iterative Proportional Fitting, IPF)** to adjust a seed OD so row and column totals match target productions and attractions.
+-   **Doubly constrained gravity modeling** to synthesize an OD matrix given targets and a cost matrix, with calibration of deterrence parameters using **Poisson maximum likelihood** (and optional Hyman calibration for the exponential form).
+
+Inputs can be provided as **square matrices** or as **long tables** (origin, destination, value). Functions return diagnostics to help validate balancing and calibration.
 
 ## Installation
 
@@ -31,159 +33,268 @@ library(tripdistmodels)
 
 ## What the package does
 
-### 1) Growth factor modeling with Furness (IPF)
+### 1) Furness (IPF) balancing
 
-Use this when you have a **base OD matrix** and want an updated OD that matches **future margins**:
+Use `furness()` when you have a seed OD (base or synthetic) and you want it to match target margins:
 
--   `o_fut`: target productions (row totals)
--   `d_fut`: target attractions (column totals)
+-   `o_target`: target productions (row totals)
+-   `d_target`: target attractions (column totals)
 
-The method iteratively scales rows and columns until the matrix matches the targets within a tolerance.
+If `sum(o_target)` differs from `sum(d_target)`, `scale_totals` controls how totals are reconciled:
 
-Typical use cases:
+-   `"d_to_o"` rescales `d_target` to match `sum(o_target)`
+-   `"o_to_d"` rescales `o_target` to match `sum(d_target)`
 
--   Forecasting OD totals by applying projected productions and attractions
--   Harmonizing OD matrices to consistent margins across scenarios
--   Building baseline matrices for subsequent modeling steps
+The algorithm alternates row and column scaling until convergence.
 
-### 2) Gravity model with trip length frequency distribution (TLFD) calibration
+### 2) Gravity model synthesis with calibration
 
-Use this when you want to **build** a synthetic OD matrix under a **doubly constrained gravity structure** and calibrate the friction parameters to reproduce the **observed TLFD** from a base OD.
+Use `gravit()` to synthesize an OD matrix under a doubly constrained gravity structure:
 
-The workflow inside `gravit()` is:
+-   You provide a base OD (matrix or table), a cost matrix (matrix or table), and optional targets.
+-   Deterrence parameters are calibrated to the base OD using Poisson maximum likelihood, while enforcing current marginals internally via IPF.
 
-1.  Read and align inputs (OD base, cost matrix)
-2.  Compute observed TLFD using weighted bins (auto bins or user bins)
-3.  For candidate friction parameters:
-    -   Build a seed matrix from the friction function
-    -   Apply IPF to match target productions and attractions
-    -   Compare modeled TLFD vs observed TLFD
-4.  Choose parameters that minimize TLFD mismatch
-5.  Return the final synthetic OD and diagnostics
+Supported deterrence functions:
 
-Supported friction functions:
-
--   Exponential: $f(c) = e^{-\beta c}$, with $\beta > 0$
+-   Exponential: $f(c) = \exp(-\beta c)$, with $\beta > 0$
 -   Power: $f(c) = c^{-n}$, with $n > 0$
--   Combined: $f(c) = c^{n} e^{-\beta c}$, with $\beta > 0$ and $n \in \mathbb{R}$
+-   Combined: $f(c) = \exp(-\beta c)\,c^{-n}$, with $\beta > 0$ and $n > 0$
 
 Notes:
 
--   The combined form is flexible and often fits TLFD better.
--   The package applies a simple positive floor to costs to avoid issues when `c_ij = 0`.
+-   For `"power"` and `"combined"`, a positive cost floor can be applied to handle zero or non-positive costs (`c_floor` or `c_floor_rate`).
+-   Missing OD pairs can be treated as unobserved (`missing = "exclude"`, default) or as observed zeros (`missing = "zero"`).
+
+## Estimation and calibration
+
+`gravit()` supports three estimation modes via `estimation`:
+
+-   `"poisson"` (default): estimates deterrence parameters by maximizing a Poisson log-linear likelihood.
+-   `"hyman"`: available only for `deterrence = "exp"`, calibrates $\beta$ to match observed and modeled mean cost.
+-   `"fixed"`: no calibration, uses user-provided `beta` and/or `n`.
+
+### How Poisson maximum likelihood works
+
+For each candidate parameter vector (for example, `beta` in the exponential case or `(beta, n)` in the combined case), `gravit()` evaluates an objective based on the Poisson log-likelihood.
+
+Conceptually, each objective evaluation does:
+
+1.  Compute current marginals from the base OD (with `missing` handling applied):
+    -   $O_{now}$ are row sums
+    -   $D_{now}$ are column sums
+2.  Build a gravity seed matrix using these marginals and the current deterrence parameters:
+    -   $seed_{ij} = O_{now,i}\,D_{now,j}\,f(c_{ij};\theta)$
+3.  Run IPF (Furness) to balance the seed exactly to $O_{now}$ and $D_{now}$, producing $\mu_{ij}$.
+4.  Evaluate the Poisson log-likelihood on observed cells only (when `missing = "exclude"`) or on all cells (when `missing = "zero"`), ignoring the $\log(y!)$ constants:
+    -   $\ell(\theta) = \sum (y_{ij}\log \mu_{ij} - \mu_{ij})$
+5.  Use numerical optimization (L-BFGS-B with non-negativity bounds) to find parameters that maximize $\ell(\theta)$.
+
+After parameters are estimated, `gravit()` runs a final synthesis step:
+
+-   It builds a seed using the requested targets `o_target` and `d_target`, and balances that seed to those targets via IPF to produce the final `od_model`.
+
+Practical note: in the combined form, `beta` and `n` can trade off depending on the cost distribution (partial confounding). If you see unstable estimates, consider `"fixed"` for one parameter, or rescale costs to keep `beta * cost` in a reasonable range.
+
+### How the Hyman procedure works (exp only)
+
+When `estimation = "hyman"` and `deterrence = "exp"`, the calibration targets the mean travel cost:
+
+1.  Compute the observed mean cost (weighted by observed trips on observed cells).
+2.  Initialize $\beta$ (often using $1 / \bar{c}$).
+3.  Iterate: given $\beta$, build a seed, balance it to current marginals, compute modeled mean cost, and update $\beta$ so the modeled mean cost moves toward the observed mean cost.
+
+This is a classic calibration heuristic for exponential gravity models.
 
 ## Inputs and formats
 
 ### OD input
 
-You can provide `od_base` as:
+You can provide `od` (for `furness()`) or `od_base` (for `gravit()`) as:
 
--   **Matrix**: numeric matrix, non-negative, no NA
--   **Table**: long data.frame with columns:
-    -   origin (default `ori`)
-    -   destination (default `des`)
-    -   trips (default `n`)
+-   **Matrix**: numeric square matrix with identical row and column names (zones).
+-   **Table**: long `data.frame` with origin, destination, and trips columns.
 
-Duplicates are allowed in the table input and will be summed.
+For table OD input: - Only OD pairs present in the table are filled. - Missing pairs become `NA` in the reconstructed matrix and are handled according to `missing`.
+
+Default table column names are: - origin: `ori` (override with `o_col`) - destination: `des` (override with `d_col`) - trips: `n` (override with `t_col`)
 
 ### Cost input
 
 You can provide `cost` as:
 
--   **Matrix**: numeric matrix aligned to OD zoning
--   **Table**: long data.frame with columns:
-    -   origin (default `ori`)
-    -   destination (default `des`)
-    -   cost (default `cost`)
+-   **Matrix**: numeric square matrix aligned to the OD zoning.
+-   **Table**: long `data.frame` with origin, destination, and cost columns.
 
-For table cost input, full coverage is currently required.
+Default table column names are: - origin: `ori` (override with `o_col`) - destination: `des` (override with `d_col`) - cost: `c` (override with `c_col`)
 
-## Quick example
+For table cost input, full coverage is recommended so the cost matrix can be rebuilt without gaps.
 
-This is a small end-to-end example that you can run after installation.
+## Quick examples
+
+### Example A: Furness balancing with matrix input
 
 ``` r
 library(tripdistmodels)
 
-# Base OD as a long table
-od_base <- data.frame(
-  ori = c("A","A","A","B","B","C","D","D"),
-  des = c("A","B","C","B","C","C","A","D"),
-  n   = c(10, 30, 20, 15, 10, 8, 5, 12)
+set.seed(1)
+zones <- LETTERS[1:4]
+
+seed <- matrix(runif(16, 1, 10), nrow = 4, dimnames = list(zones, zones))
+
+o_target <- c(A = 140, B = 85, C = 55, D = 50)
+d_target <- c(A = 100, B = 80, C = 85, D = 65)
+
+fit <- furness(
+  od = seed,
+  od_type = "matrix",
+  o_target = o_target,
+  d_target = d_target,
+  scale_totals = "d_to_o",
+  tol = 1e-8,
+  max_iter = 5000,
+  verbose = FALSE
 )
 
-# Cost matrix (must align to zones A, B, C, D)
-C <- matrix(
+# Balanced OD
+fit$od_balanced
+
+# Check margins
+max(abs(rowSums(fit$od_balanced) - fit$o_target))
+max(abs(colSums(fit$od_balanced) - fit$d_target))
+```
+
+### Example B: Gravity synthesis with matrix inputs (exp + Poisson ML)
+
+``` r
+library(tripdistmodels)
+
+set.seed(2)
+zones <- paste0("Z", 1:6)
+
+xy <- cbind(runif(6), runif(6))
+cost <- as.matrix(dist(xy)) * 100
+dimnames(cost) <- list(zones, zones)
+
+# Base OD (with some zeros)
+od_base <- matrix(rpois(36, lambda = 10), 6, 6, dimnames = list(zones, zones))
+
+# Targets (here, use base marginals)
+o_target <- rowSums(od_base, na.rm = TRUE)
+d_target <- colSums(od_base, na.rm = TRUE)
+
+res <- gravit(
+  od_base = od_base,
+  cost = cost,
+  od_type = "matrix",
+  cost_type = "matrix",
+  deterrence = "exp",
+  estimation = "poisson",
+  missing = "exclude",
+  o_target = o_target,
+  d_target = d_target,
+  scale_totals = "d_to_o",
+  tol = 1e-6,
+  max_iter = 2000,
+  verbose = TRUE
+)
+
+res$params
+res$converged
+
+# Check margins
+max(abs(rowSums(res$od_model) - res$o_target))
+max(abs(colSums(res$od_model) - res$d_target))
+```
+
+### Example C: Gravity synthesis with table inputs and custom column names
+
+``` r
+library(tripdistmodels)
+
+set.seed(3)
+zones <- c("A", "B", "C", "D")
+
+# OD table
+od_tab <- data.frame(
+  o = c("A","A","B","B","C","D"),
+  d = c("B","C","C","D","D","A"),
+  t = c(30, 20, 10, 15, 8, 12)
+)
+
+# Cost table
+grid <- expand.grid(o = zones, d = zones, stringsAsFactors = FALSE)
+cost_mat <- matrix(
   c(0,  5, 10, 18,
     5,  0,  7, 14,
    10,  7,  0,  9,
    18, 14,  9,  0),
-  nrow = 4, byrow = TRUE,
-  dimnames = list(c("A","B","C","D"), c("A","B","C","D"))
+  nrow = 4, byrow = TRUE, dimnames = list(zones, zones)
 )
+cost_tab <- transform(grid, c = as.numeric(cost_mat[cbind(match(o, zones), match(d, zones))]))
 
-# Future targets
-O_fut <- c(A = 140, B = 85, C = 55, D = 50)
-D_fut <- c(A = 100, B = 80, C = 85, D = 65)
+# Targets (example)
+o_target <- c(A = 140, B = 85, C = 55, D = 50)
+d_target <- c(A = 100, B = 80, C = 85, D = 65)
 
-# Synthetic gravity with TLFD calibration
 res <- gravit(
-  od_base = od_base,
-  cost = C,
+  od_base = od_tab,
+  cost = cost_tab,
   od_type = "table",
-  cost_type = "matrix",
-  o_target = O_fut,
-  d_target = D_fut,
-  friction = "combined",
-  bins = "auto",
-  n_bins = 10,
-  tol = 1e-6,
-  max_iter = 5000,
-  scale_totals = "none",
-  verbose = TRUE
+  cost_type = "table",
+  deterrence = "combined",
+  estimation = "poisson",
+  missing = "exclude",
+  o_target = o_target,
+  d_target = d_target,
+  o_col = "o",
+  d_col = "d",
+  t_col = "t",
+  c_col = "c",
+  c_floor = 1.0,
+  scale_totals = "d_to_o",
+  verbose = FALSE
 )
 
-# Outputs
 res$params
-res$fit_metrics
-
-# Check margins
-max(abs(rowSums(res$od_model) - O_fut))
-max(abs(colSums(res$od_model) - D_fut))
-
-# Compare TLFD
-head(res$tld_obs)
-head(res$tld_mod)
 ```
 
-## What you get back (diagnostics)
+## Outputs and diagnostics
 
-`gravit()` returns an object of class `"tdm_gravit"` with:
+### `furness()`
 
--   `od_model`: final synthetic OD matrix
--   `params`: estimated friction parameters
--   `tld_obs`: observed TLFD from base OD
--   `tld_mod`: modeled TLFD from synthetic OD
--   `fit_metrics`: simple fit measures (SSE on TLFD shares, mean cost observed and modeled)
--   `ipf`: convergence info from the final IPF run
--   `optim`: optimizer info (method, best objective, etc.)
--   `cost`: original cost matrix and adjusted cost matrix (with stored cost floor)
--   `bins`: cutpoints used for TLFD
+Returns a list with:
+
+-   `od_balanced`: balanced OD matrix
+-   `converged`: logical
+-   `iterations`: number of iterations used
+-   `max_rel_error`: final maximum relative marginal error
+-   `o_target`, `d_target`: the targets used after any rescaling
+
+### `gravit()`
+
+Returns a list with:
+
+-   `od_base`: base OD matrix (as provided or reconstructed from table)
+-   `cost`: cost matrix (as provided or reconstructed from table)
+-   `od_model`: final synthesized OD matrix
+-   `deterrence`, `estimation`, `missing`
+-   `params`: estimated parameters (`beta`, `n`, depending on the deterrence)
+-   `converged`, `iterations`, `max_rel_error`
+-   `o_target`, `d_target`: targets used after any rescaling
 
 ## Practical tips
 
--   For larger systems, start with a looser tolerance (example `tol = 1e-4`) while you iterate, then tighten once things look stable.
--   If you pass custom bins, ensure they are strictly increasing and cover the full cost range you want to model.
--   If your OD has many zeros, prefer the table input with `n > 0` rows only. This reduces memory and speeds up preprocessing.
+-   Start with a looser tolerance while iterating on inputs and diagnostics (for example `tol = 1e-4`), then tighten once results look stable.
+-   For `"power"` and `"combined"`, be mindful of zero costs. Use `c_floor` (scalar or per-origin vector) or leave `c_floor = NULL` and control `c_floor_rate`.
+-   For `"combined"`, `beta` and `n` can be partially confounded depending on the cost distribution. If estimation is unstable, consider fixing one parameter (`estimation = "fixed"`) and estimating the other via external calibration.
 
 ## Roadmap
 
 Planned enhancements include:
 
--   Structural masks for forbidden OD pairs (example, no trips between disconnected zones).
--   Additional TLFD binning strategies.
--   Implement Intervening Opportunities models.
+-   Additional calibration objectives and diagnostic summaries.
+-   Intervening opportunities models.
 
 ## Citation
 
-If you use **tripdistmodels** in academic work, consider citing the package repository and release version you used.
+If you use **tripdistmodels** in academic work, consider citing the package repository and the specific release or commit you used.
