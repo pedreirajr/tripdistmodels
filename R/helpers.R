@@ -31,6 +31,104 @@ assert_square_named_matrix <- function(M, name = "matrix") {
   invisible(TRUE)
 }
 
+# Ensure a square numeric matrix has consistent row/col names.
+# If names are missing, create default names (Z1, Z2, ...).
+# If `zones` is provided, enforce those names (and error if existing names conflict).
+ensure_square_named_matrix <- function(M, name = "matrix", zones = NULL, prefix = "Z") {
+  if (!is.matrix(M) || !is.numeric(M)) {
+    stop("`", name, "` must be a numeric matrix.", call. = FALSE)
+  }
+  if (nrow(M) != ncol(M)) {
+    stop("`", name, "` must be square.", call. = FALSE)
+  }
+
+  n <- nrow(M)
+  rn <- rownames(M)
+  cn <- colnames(M)
+
+  if (is.null(zones)) {
+    if (is.null(rn) && is.null(cn)) {
+      zones <- paste0(prefix, seq_len(n))
+      dimnames(M) <- list(zones, zones)
+      return(M)
+    }
+
+    if (is.null(rn) && !is.null(cn)) {
+      if (length(cn) != n) stop("`", name, "` has invalid column names length.", call. = FALSE)
+      rownames(M) <- cn
+      rn <- cn
+    }
+
+    if (!is.null(rn) && is.null(cn)) {
+      if (length(rn) != n) stop("`", name, "` has invalid row names length.", call. = FALSE)
+      colnames(M) <- rn
+      cn <- rn
+    }
+
+    if (!identical(rn, cn)) {
+      stop("`", name, "` must have identical row and column names.", call. = FALSE)
+    }
+
+    return(M)
+  }
+
+  # zones provided
+  if (!is.character(zones) || length(zones) != n) {
+    stop("`zones` must be a character vector of length nrow(`", name, "`).", call. = FALSE)
+  }
+
+  # If both missing, set to zones
+  if (is.null(rn) && is.null(cn)) {
+    dimnames(M) <- list(zones, zones)
+    return(M)
+  }
+
+  # If only one side exists, validate it matches zones, then set both
+  if (is.null(rn) && !is.null(cn)) {
+    if (!identical(cn, zones)) stop("`", name, "` names do not match the required zones.", call. = FALSE)
+    dimnames(M) <- list(zones, zones)
+    return(M)
+  }
+
+  if (!is.null(rn) && is.null(cn)) {
+    if (!identical(rn, zones)) stop("`", name, "` names do not match the required zones.", call. = FALSE)
+    dimnames(M) <- list(zones, zones)
+    return(M)
+  }
+
+  # Both exist: must match each other and zones
+  if (!identical(rn, cn)) stop("`", name, "` must have identical row and column names.", call. = FALSE)
+  if (!identical(rn, zones)) stop("`", name, "` names do not match the required zones.", call. = FALSE)
+
+  M
+}
+
+# Align OD and cost matrices to a common set of zones.
+# If either matrix is missing names, it will inherit the names from the other.
+# If both are missing names, default names Z1..Zn are created.
+align_od_cost_matrices <- function(N, C, prefix = "Z") {
+  if (!is.matrix(N) || !is.numeric(N)) stop("`od_base` must be a numeric matrix.", call. = FALSE)
+  if (!is.matrix(C) || !is.numeric(C)) stop("`cost` must be a numeric matrix.", call. = FALSE)
+  if (nrow(N) != ncol(N)) stop("`od_base` must be square.", call. = FALSE)
+  if (nrow(C) != ncol(C)) stop("`cost` must be square.", call. = FALSE)
+  if (nrow(N) != nrow(C)) stop("OD and cost must have the same dimensions.", call. = FALSE)
+
+  n <- nrow(N)
+
+  rnN <- rownames(N); cnN <- colnames(N)
+  rnC <- rownames(C); cnC <- colnames(C)
+
+  zones <- NULL
+  if (!is.null(rnN)) zones <- rnN else if (!is.null(cnN)) zones <- cnN
+  else if (!is.null(rnC)) zones <- rnC else if (!is.null(cnC)) zones <- cnC
+  else zones <- paste0(prefix, seq_len(n))
+
+  N2 <- ensure_square_named_matrix(N, name = "od_base", zones = zones, prefix = prefix)
+  C2 <- ensure_square_named_matrix(C, name = "cost", zones = zones, prefix = prefix)
+
+  list(N = N2, C = C2, zones = zones)
+}
+
 # Enforce consistency between the total number of productions and attractions.
 # If totals differ, rescale one side according to `scale_totals`.
 scale_targets_if_needed <- function(o_target, d_target, scale_totals = c("d_to_o", "o_to_d")) {
@@ -119,7 +217,8 @@ as_cost_matrix <- function(cost, o_col = "ori", d_col = "des", c_col = "c") {
 # If `c_floor` is a scalar, it is used for all origins.
 # If `c_floor` is a vector of length n, it is used per origin.
 apply_cost_floor <- function(C, c_floor = NULL, c_floor_rate = 0.5) {
-  assert_square_named_matrix(C, "cost")
+  # Make sure cost is square and named; if not, create default names.
+  C <- ensure_square_named_matrix(C, name = "cost", zones = NULL, prefix = "Z")
 
   if (any(!is.finite(C))) stop("`cost` contains non-finite values.", call. = FALSE)
   if (any(C < 0, na.rm = TRUE)) stop("`cost` must be non-negative.", call. = FALSE)
@@ -249,7 +348,6 @@ calibrate_poisson <- function(N, C_eff, use_mask,
   y_obs <- N[obs_idx]
   c_obs <- C_eff[obs_idx]
 
-  # Use a cost-based heuristic for starting values
   w <- y_obs
   if (all(w == 0, na.rm = TRUE)) {
     cbar <- mean(c_obs, na.rm = TRUE)
@@ -258,40 +356,19 @@ calibrate_poisson <- function(N, C_eff, use_mask,
   }
   cbar <- max(cbar, .Machine$double.eps)
 
-  # Large finite penalty used when the objective would be non-finite (Inf/NaN)
-  finite_penalty <- function() 1e100
-
-  # Compute a safe negative log-likelihood:
-  # - If Furness fails, or mu is not usable, or loglik is -Inf/NaN, return a finite penalty.
-  safe_negloglik <- function(seed) {
-    fit <- tryCatch(
-      furness(
-        seed, od_type = "matrix",
-        o_target = O_cal, d_target = D_cal,
-        tol = tol, max_iter = max_iter,
-        scale_totals = scale_totals,
-        verbose = FALSE
-      ),
-      error = function(e) NULL
-    )
-
-    if (is.null(fit)) return(finite_penalty())
-
-    mu <- fit$od_balanced
-    if (any(!is.finite(mu))) return(finite_penalty())
-
-    ll <- poisson_loglik_noconst(N, mu, use_mask)
-    if (!is.finite(ll)) return(finite_penalty())
-
-    -ll
-  }
-
   obj_exp <- function(par) {
     beta <- par[1]
     params <- list(beta = beta)
 
     seed <- build_seed(O_cal, D_cal, C_eff, "exp", params)
-    safe_negloglik(seed)
+    fit <- furness(seed, od_type = "matrix",
+                   o_target = O_cal, d_target = D_cal,
+                   tol = tol, max_iter = max_iter,
+                   scale_totals = scale_totals,
+                   verbose = FALSE)
+
+    mu <- fit$od_balanced
+    -poisson_loglik_noconst(N, mu, use_mask)
   }
 
   obj_power <- function(par) {
@@ -299,7 +376,14 @@ calibrate_poisson <- function(N, C_eff, use_mask,
     params <- list(n = n)
 
     seed <- build_seed(O_cal, D_cal, C_eff, "power", params)
-    safe_negloglik(seed)
+    fit <- furness(seed, od_type = "matrix",
+                   o_target = O_cal, d_target = D_cal,
+                   tol = tol, max_iter = max_iter,
+                   scale_totals = scale_totals,
+                   verbose = FALSE)
+
+    mu <- fit$od_balanced
+    -poisson_loglik_noconst(N, mu, use_mask)
   }
 
   obj_comb <- function(par) {
@@ -308,42 +392,38 @@ calibrate_poisson <- function(N, C_eff, use_mask,
     params <- list(beta = beta, n = n)
 
     seed <- build_seed(O_cal, D_cal, C_eff, "combined", params)
-    safe_negloglik(seed)
-  }
+    fit <- furness(seed, od_type = "matrix",
+                   o_target = O_cal, d_target = D_cal,
+                   tol = tol, max_iter = max_iter,
+                   scale_totals = scale_totals,
+                   verbose = FALSE)
 
-  # Finite upper bounds help prevent numerical underflow (mu -> 0) in combined
-  upper_beta <- 10
-  upper_n <- 10
+    mu <- fit$od_balanced
+    -poisson_loglik_noconst(N, mu, use_mask)
+  }
 
   if (deterrence == "exp") {
     par0 <- c(1 / cbar)
-    opt <- stats::optim(
-      par = par0, fn = obj_exp,
-      method = "L-BFGS-B",
-      lower = c(0), upper = c(upper_beta)
-    )
+    opt <- stats::optim(par = par0, fn = obj_exp,
+                        method = "L-BFGS-B",
+                        lower = c(0), upper = c(Inf))
     list(beta = opt$par[1])
 
   } else if (deterrence == "power") {
     par0 <- c(1)
-    opt <- stats::optim(
-      par = par0, fn = obj_power,
-      method = "L-BFGS-B",
-      lower = c(0), upper = c(upper_n)
-    )
+    opt <- stats::optim(par = par0, fn = obj_power,
+                        method = "L-BFGS-B",
+                        lower = c(0), upper = c(Inf))
     list(n = opt$par[1])
 
   } else {
     par0 <- c(1 / cbar, 1)
-    opt <- stats::optim(
-      par = par0, fn = obj_comb,
-      method = "L-BFGS-B",
-      lower = c(0, 0), upper = c(upper_beta, upper_n)
-    )
+    opt <- stats::optim(par = par0, fn = obj_comb,
+                        method = "L-BFGS-B",
+                        lower = c(0, 0), upper = c(Inf, Inf))
     list(beta = opt$par[1], n = opt$par[2])
   }
 }
-
 
 # Calibrate beta for exponential deterrence using the Hyman procedure.
 # The goal is to match the observed mean cost with the model-implied mean cost:

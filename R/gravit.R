@@ -29,10 +29,10 @@
 #' @param tol Convergence tolerance passed to Furness and to root-finding/optimization in calibration.
 #' @param max_iter Maximum iterations for Furness.
 #' @param verbose If `TRUE`, prints diagnostic messages.
-#' @param o_col (table input) origin column name in `od_base` and `cost`.
-#' @param d_col (table input) destination column name in `od_base` and `cost`.
-#' @param t_col (table input) trips column name in `od_base`.
-#' @param c_col (table input) cost column name in `cost`.
+#' @param o_col If `od_type` and `cost_type` have a `"table"` input, origin column name in `od_base` and `cost`.
+#' @param d_col If `od_type` and `cost_type` have a `"table"` input, destination column name in `od_base` and `cost`.
+#' @param t_col If `od_type` has a `"table"` input, trips column name in `od_base`.
+#' @param c_col If `cost_type` has a `"table"` input, cost column name in `cost`.
 #'
 #' @return A list with elements:
 #'   - `od_base`: base OD (matrix, with NAs if missing pairs were not provided)
@@ -69,7 +69,7 @@ gravit <- function(od_base,
                    c_floor = NULL,
                    c_floor_rate = 0.5,
                    scale_totals = c("d_to_o", "o_to_d"),
-                   tol = 1e-4,
+                   tol = 1e-6,
                    max_iter = 2000,
                    verbose = FALSE,
                    o_col = "ori",
@@ -90,7 +90,6 @@ gravit <- function(od_base,
   } else {
     N_raw <- as_od_matrix(od_base, o_col = o_col, d_col = d_col, t_col = t_col)
   }
-  assert_square_named_matrix(N_raw, "od_base")
 
   # ---- Input: Cost ----
   if (cost_type == "matrix") {
@@ -98,10 +97,17 @@ gravit <- function(od_base,
   } else {
     C_raw <- as_cost_matrix(cost, o_col = o_col, d_col = d_col, c_col = c_col)
   }
-  assert_square_named_matrix(C_raw, "cost")
 
-  zones <- rownames(N_raw)
-  if (!identical(zones, rownames(C_raw))) stop("OD and cost must have identical zones/dimnames.", call. = FALSE)
+  # ---- Align names (create default Z1..Zn if missing) and validate dimensions ----
+  aligned <- align_od_cost_matrices(N_raw, C_raw, prefix = "Z")
+  N_raw <- aligned$N
+  C_raw <- aligned$C
+  zones <- aligned$zones
+
+  # Basic validity checks
+  if (any(!is.finite(C_raw))) stop("`cost` contains non-finite values.", call. = FALSE)
+  if (any(C_raw < 0, na.rm = TRUE)) stop("`cost` must be non-negative.", call. = FALSE)
+  if (any(N_raw < 0, na.rm = TRUE)) stop("`od_base` must be non-negative.", call. = FALSE)
 
   N0 <- N_raw
   C0 <- C_raw
@@ -117,48 +123,71 @@ gravit <- function(od_base,
     message("missing = '", missing, "'.")
   }
 
-  # ---- Marginais atuais (base) para calibração ----
+  # ---- Current marginals (base) for calibration ----
   O_now <- rowSums(N, na.rm = TRUE)
   D_now <- colSums(N, na.rm = TRUE)
 
-  # ---- Targets (default = atuais) ----
+  # ---- Targets (default = current) ----
   if (is.null(o_target)) o_target <- O_now
   if (is.null(d_target)) d_target <- D_now
 
-  o_target <- as.numeric(o_target); names(o_target) <- zones
-  d_target <- as.numeric(d_target); names(d_target) <- zones
+  # If targets are named, align by zones; otherwise assume ordering matches.
+  if (!is.null(names(o_target))) {
+    if (!all(zones %in% names(o_target))) stop("`o_target` names must cover all zones.", call. = FALSE)
+    o_target <- as.numeric(o_target[zones])
+  } else {
+    o_target <- as.numeric(o_target)
+  }
+  names(o_target) <- zones
 
-  # Ajusta totais dos targets se necessário
+  if (!is.null(names(d_target))) {
+    if (!all(zones %in% names(d_target))) stop("`d_target` names must cover all zones.", call. = FALSE)
+    d_target <- as.numeric(d_target[zones])
+  } else {
+    d_target <- as.numeric(d_target)
+  }
+  names(d_target) <- zones
+
+  # Adjust target totals if needed
   scaled_tgt <- scale_targets_if_needed(o_target, d_target, scale_totals = scale_totals)
   o_target <- scaled_tgt$o_target
   d_target <- scaled_tgt$d_target
 
-  # ---- Cost floor (importante para power/combined) ----
+  # ---- Cost floor (important for power/combined) ----
   C_eff <- apply_cost_floor(C0, c_floor = c_floor, c_floor_rate = c_floor_rate)
 
-  # ---- Calibração (params) ----
+  # ---- Calibration (estimate parameters) ----
   if (estimation == "fixed") {
     if (deterrence == "exp") {
-      if (is.null(beta) || !is.numeric(beta) || length(beta) != 1) stop("For fixed+exp, provide scalar `beta`.", call. = FALSE)
+      if (is.null(beta) || !is.numeric(beta) || length(beta) != 1) {
+        stop("For fixed+exp, provide scalar `beta`.", call. = FALSE)
+      }
       params <- list(beta = as.numeric(beta))
     } else if (deterrence == "power") {
-      if (is.null(n) || !is.numeric(n) || length(n) != 1) stop("For fixed+power, provide scalar `n`.", call. = FALSE)
+      if (is.null(n) || !is.numeric(n) || length(n) != 1) {
+        stop("For fixed+power, provide scalar `n`.", call. = FALSE)
+      }
       params <- list(n = as.numeric(n))
     } else {
-      if (is.null(beta) || !is.numeric(beta) || length(beta) != 1) stop("For fixed+combined, provide scalar `beta`.", call. = FALSE)
-      if (is.null(n) || !is.numeric(n) || length(n) != 1) stop("For fixed+combined, provide scalar `n`.", call. = FALSE)
+      if (is.null(beta) || !is.numeric(beta) || length(beta) != 1) {
+        stop("For fixed+combined, provide scalar `beta`.", call. = FALSE)
+      }
+      if (is.null(n) || !is.numeric(n) || length(n) != 1) {
+        stop("For fixed+combined, provide scalar `n`.", call. = FALSE)
+      }
       params <- list(beta = as.numeric(beta), n = as.numeric(n))
     }
 
   } else if (estimation == "hyman") {
-    if (deterrence != "exp") stop("`estimation='hyman'` is only available for `deterrence='exp'`.", call. = FALSE)
+    if (deterrence != "exp") {
+      stop("`estimation='hyman'` is only available for `deterrence='exp'`.", call. = FALSE)
+    }
     cal <- calibrate_hyman_exp(
       N = N, C_eff = C_eff, use_mask = use_mask,
       O_now = O_now, D_now = D_now,
       tol = tol, max_iter = max_iter, scale_totals = scale_totals
     )
     params <- list(beta = cal$beta)
-
     if (isTRUE(verbose)) message("Hyman: beta = ", signif(params$beta, 8))
 
   } else {
@@ -181,7 +210,7 @@ gravit <- function(od_base,
     }
   }
 
-  # ---- Síntese para targets ----
+  # ---- Synthesis to targets ----
   seed <- build_seed(o_target, d_target, C_eff, deterrence, params)
 
   fit <- furness(

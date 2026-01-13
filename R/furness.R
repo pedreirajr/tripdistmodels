@@ -22,7 +22,7 @@ furness <- function(od,
                     od_type = c("matrix", "table"),
                     o_target,
                     d_target,
-                    tol = 1e-4,
+                    tol = 1e-6,
                     max_iter = 2000,
                     scale_totals = c("d_to_o", "o_to_d"),
                     verbose = FALSE,
@@ -33,34 +33,52 @@ furness <- function(od,
   od_type <- match.arg(od_type)
   scale_totals <- match.arg(scale_totals)
 
-  # 1) Normalize input into a matrix
+  # 1) Normalize input to a matrix
   if (od_type == "matrix") {
     od_mat <- od
   } else {
     od_mat <- as_od_matrix(od, o_col = o_col, d_col = d_col, t_col = t_col)
   }
-  assert_square_named_matrix(od_mat, "od")
 
-  # IPF assumes non-negative, finite values in the seed matrix
-  if (any(!is.finite(od_mat))) {
-    stop("`od` must contain only finite values.", call. = FALSE)
-  }
-  if (any(od_mat < 0, na.rm = TRUE)) {
-    stop("`od` must be non-negative.", call. = FALSE)
-  }
+  # Ensure the matrix is square and has consistent names; create default names if needed.
+  od_mat <- ensure_square_named_matrix(od_mat, name = "od", zones = NULL, prefix = "Z")
+
+  # Basic validity checks
+  if (any(!is.finite(od_mat), na.rm = TRUE)) stop("`od` contains non-finite values.", call. = FALSE)
+  if (any(od_mat < 0, na.rm = TRUE)) stop("`od` must be non-negative.", call. = FALSE)
 
   zones <- rownames(od_mat)
+  n <- nrow(od_mat)
 
-  # 2) Coerce targets and enforce consistent naming
-  o_target <- as.numeric(o_target); names(o_target) <- zones
-  d_target <- as.numeric(d_target); names(d_target) <- zones
+  # 2) Targets: validate length and align to zones if names are provided
+  if (length(o_target) != n) stop("`o_target` must have length equal to nrow(od).", call. = FALSE)
+  if (length(d_target) != n) stop("`d_target` must have length equal to nrow(od).", call. = FALSE)
 
-  # 3) Ensure totals are consistent by rescaling one side if needed
+  if (!is.null(names(o_target))) {
+    if (!all(zones %in% names(o_target))) stop("`o_target` names must cover all zones.", call. = FALSE)
+    o_target <- as.numeric(o_target[zones])
+  } else {
+    o_target <- as.numeric(o_target)
+  }
+  names(o_target) <- zones
+
+  if (!is.null(names(d_target))) {
+    if (!all(zones %in% names(d_target))) stop("`d_target` names must cover all zones.", call. = FALSE)
+    d_target <- as.numeric(d_target[zones])
+  } else {
+    d_target <- as.numeric(d_target)
+  }
+  names(d_target) <- zones
+
+  if (any(!is.finite(o_target)) || any(!is.finite(d_target))) stop("Targets contain non-finite values.", call. = FALSE)
+  if (any(o_target < 0) || any(d_target < 0)) stop("Targets must be non-negative.", call. = FALSE)
+
+  # 3) Ensure consistent totals
   scaled <- scale_targets_if_needed(o_target, d_target, scale_totals = scale_totals)
   o_target <- scaled$o_target
   d_target <- scaled$d_target
 
-  # 4) Seed: replace NA by 0 (IPF requires numeric values)
+  # 4) Seed: convert NA to 0 (IPF requires numeric values)
   od_bal <- od_mat
   od_bal[is.na(od_bal)] <- 0
 

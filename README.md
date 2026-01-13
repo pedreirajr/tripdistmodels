@@ -7,7 +7,7 @@ MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE.md)
 [![Lifecycle:
 experimental](https://img.shields.io/badge/lifecycle-experimental-orange.svg)](https://lifecycle.r-lib.org/articles/stages.html#experimental)
 
-## Current scope
+### Current scope
 
 **tripdistmodels** currently provides two core building blocks for trip
 distribution work:

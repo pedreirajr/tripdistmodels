@@ -19,7 +19,7 @@ gravit(
   c_floor = NULL,
   c_floor_rate = 0.5,
   scale_totals = c("d_to_o", "o_to_d"),
-  tol = 1e-04,
+  tol = 1e-06,
   max_iter = 2000,
   verbose = FALSE,
   o_col = "ori",
@@ -67,13 +67,13 @@ If \code{NULL}, an origin-specific \code{c_floor} is inferred as \code{c_floor_r
 
 \item{verbose}{If \code{TRUE}, prints diagnostic messages.}
 
-\item{o_col}{(table input) origin column name in \code{od_base} and \code{cost}.}
+\item{o_col}{If \code{od_type} and \code{cost_type} have a \code{"table"} input, origin column name in \code{od_base} and \code{cost}.}
 
-\item{d_col}{(table input) destination column name in \code{od_base} and \code{cost}.}
+\item{d_col}{If \code{od_type} and \code{cost_type} have a \code{"table"} input, destination column name in \code{od_base} and \code{cost}.}
 
-\item{t_col}{(table input) trips column name in \code{od_base}.}
+\item{t_col}{If \code{od_type} has a \code{"table"} input, trips column name in \code{od_base}.}
 
-\item{c_col}{(table input) cost column name in \code{cost}.}
+\item{c_col}{If \code{cost_type} has a \code{"table"} input, cost column name in \code{cost}.}
 }
 \value{
 A list with elements:

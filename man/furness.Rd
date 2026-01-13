@@ -9,7 +9,7 @@ furness(
   od_type = c("matrix", "table"),
   o_target,
   d_target,
-  tol = 1e-04,
+  tol = 1e-06,
   max_iter = 2000,
   scale_totals = c("d_to_o", "o_to_d"),
   verbose = FALSE,
